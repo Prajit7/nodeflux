@@ -38,3 +38,5 @@ docs/
 .superpowers/
 **/build/
 doc/*.gif
+site/
+.vercel/
