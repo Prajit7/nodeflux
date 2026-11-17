@@ -1,17 +1,30 @@
-# nodeflux_example
+# nodeflux example — workflow editor
 
-A new Flutter project.
+A full workflow editor built with [nodeflux](https://pub.dev/packages/nodeflux).
+**[Open the live demo](https://nodeflux-demo.vercel.app)**.
 
-## Getting Started
+What it shows:
 
-This project is a starting point for a Flutter application.
+- A 7-step flow (Trigger → Fetch orders → Transform → Condition → To Text → AI Agent → Slack) with typed `event` / `json` / `text` ports
+- **Run** with live node status, data pulses along edges, and *Inject errors* to see failures
+- Hover a connection to preview its data
+- A custom **AI Agent** node with a real model dropdown and prompt field (`FlowInteractive`)
+- Add nodes from the toolbar, right-click / double-click, ⌘K, or by dropping a connection on empty space
+- Group into sub-flows, open them, breadcrumb back
+- Auto-layout, Save / Load JSON, guides and grid snap, minimap, light / dark theme
+- **Stress 1k** — 1,000 nodes
 
-A few resources to get you started if this is your first Flutter project:
+## Run it
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```bash
+flutter run -d chrome   # or macos, ios, android, windows, linux
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Where to look
+
+| File | What's in it |
+|---|---|
+| [`lib/main.dart`](https://github.com/Prajit7/nodeflux/blob/main/example/lib/main.dart) | The editor page: canvas, toolbar, overlays, add-node menu, save / load |
+| [`lib/demo_flow.dart`](https://github.com/Prajit7/nodeflux/blob/main/example/lib/demo_flow.dart) | Port types, node templates, the sample flow |
+| [`lib/agent_node.dart`](https://github.com/Prajit7/nodeflux/blob/main/example/lib/agent_node.dart) | A configurable custom node with inputs |
+| [`lib/run_simulator.dart`](https://github.com/Prajit7/nodeflux/blob/main/example/lib/run_simulator.dart) | Fake engine driving `setStatus` / `pulseEdge` |
