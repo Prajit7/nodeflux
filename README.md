@@ -10,7 +10,12 @@ A fast, widget-based **node & flow editor for Flutter** — built for workflow, 
 - Hover a connection to **preview the data** it carried
 - Drop a connection on empty space → **compatible-node picker**; right-click / double-click to add nodes
 - **Configurable custom nodes** with real text fields, dropdowns, buttons (`FlowInteractive`)
-- Multi-select, delete, **undo / redo** (⌘Z / ⌘⇧Z), keyboard shortcuts
+- Multi-select (click, Shift-click, **Shift-drag box**), delete, **undo / redo** (⌘Z / ⌘⇧Z)
+- **Copy / cut / paste / duplicate** (⌘C ⌘X ⌘V ⌘D)
+- Drag a selected edge's end to **reconnect** it; drop a node onto an edge to **insert** it
+- **Smart alignment guides** and optional grid snap
+- **Minimap**, zoom controls and stats overlays
+- **JSON save / load** and one-call **auto-layout**
 - Light & dark themes, all 6 platforms, **zero dependencies** beyond Flutter
 
 ## Hello flow
@@ -61,6 +66,33 @@ Give such nodes a taller `size` (e.g. `Size(260, 172)`). Canvas shortcuts
 - `onCanvasMenu: (context, worldPosition) {…}` — right-click or double-click on empty canvas
 - `onConnectEndEmpty` — drop a connection on empty space; return the new node
 - `showNodePicker(context, templates: …, from: portType)` — ready-made menu
+
+## Overlays
+
+Put them in a `Stack` over the canvas:
+
+```dart
+final canvasKey = GlobalKey<FlowCanvasState>();
+final viewport = FlowViewport();
+
+Stack(children: [
+  FlowCanvas(key: canvasKey, controller: flow, viewport: viewport, nodeBuilder: …),
+  Positioned(right: 16, bottom: 16, child: FlowMinimap(controller: flow, viewport: viewport, canvas: canvasKey)),
+  Positioned(left: 16, bottom: 16, child: FlowControls(canvas: canvasKey, viewport: viewport)),
+  Positioned(left: 16, top: 12, child: FlowStats(controller: flow, viewport: viewport)),
+]);
+```
+
+## Save, load and layout
+
+```dart
+final json = flow.toJson();                                  // JSON-safe map (no run state)
+flow.loadJson(json, portTypes: {'json': jsonType});          // replace in place
+final copy = FlowController.fromJson(json, portTypes: {...}); // or a new controller
+
+flow.autoLayout();              // one undo step
+canvasKey.currentState!.fitView();
+```
 
 ## Showing run state
 

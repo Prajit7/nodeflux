@@ -1,6 +1,6 @@
 name: nodeflux
 description: A fast, widget-based node & flow editor for Flutter. Typed ports, animated edges, run status, undo/redo — built for workflow and AI-agent builders.
-version: 0.0.1
+version: 0.0.2
 repository: https://github.com/Prajit7/nodeflux
 topics: [node-editor, flow, workflow, graph, diagram]
 

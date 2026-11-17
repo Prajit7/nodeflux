@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../controller/commands.dart';
 import '../controller/flow_controller.dart';
 import '../controller/flow_viewport.dart';
+import '../controller/guides.dart';
 import '../model/flow_edge.dart';
 import '../model/flow_node.dart';
 import '../model/port.dart';
@@ -40,6 +41,8 @@ class FlowCanvas extends StatefulWidget {
     this.longPressDelay = const Duration(milliseconds: 400),
     this.showEdgeData = true,
     this.onCanvasMenu,
+    this.snapToGuides = true,
+    this.snapToGrid = false,
   });
 
   final FlowController controller;
@@ -78,6 +81,12 @@ class FlowCanvas extends StatefulWidget {
   /// typically used to show an "add node" menu at [worldPosition].
   final void Function(BuildContext context, Offset worldPosition)? onCanvasMenu;
 
+  /// Snap dragged nodes to other nodes' edges/centres and show guide lines.
+  final bool snapToGuides;
+
+  /// Snap dragged nodes to the [gridSize] grid (guides win per axis).
+  final bool snapToGrid;
+
   @override
   State<FlowCanvas> createState() => FlowCanvasState();
 }
@@ -86,8 +95,15 @@ sealed class _Drag {}
 
 class _Pan extends _Drag {}
 
+class _Marquee extends _Drag {
+  _Marquee(this.origin) : rect = Rect.fromPoints(origin, origin);
+  final Offset origin;
+  Rect rect;
+}
+
 class _Move extends _Drag {
-  _Move(this.origin, this.start);
+  _Move(this.origin, this.start, this.grab);
+  final String grab;
   final Offset origin;
   final Map<String, Offset> start;
   bool moved = false;
@@ -100,6 +116,9 @@ class _Connect extends _Drag {
   Offset screen = Offset.zero;
   String? targetNode, targetPort;
   ConnectResult? result;
+
+  /// Edge being re-targeted, when dragging an existing edge's end.
+  String? reconnect;
 }
 
 /// Touch is down on an output port, waiting for the long-press delay.
@@ -192,6 +211,16 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
     return r;
   }
 
+  /// Size of the canvas on screen.
+  Size get canvasSize => _size;
+
+  /// Pans so [world] is at the centre of the canvas.
+  void centerOn(Offset world) =>
+      _vp.offset = _size.center(Offset.zero) - world * _vp.zoom;
+
+  /// Zooms by [factor] around the canvas centre.
+  void zoomBy(double factor) => _vp.zoomAt(_size.center(Offset.zero), factor);
+
   /// Animates the viewport so every node is visible.
   void fitView(
       {Duration duration = const Duration(milliseconds: 400),
@@ -256,6 +285,17 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
     }
     if (_pointers.length > 2) return;
     final w = _vp.toWorld(e.localPosition);
+    final sel = _c.selectedEdge == null ? null : _c.edge(_c.selectedEdge!);
+    if (sel != null) {
+      final ends = EdgePainter.endpoints(_c, sel);
+      if (ends != null &&
+          (ends.$2 - w).distance <= math.max(12.0, 12 / _vp.zoom)) {
+        _drag = _Connect(sel.sourceNode, sel.sourcePort, w)
+          ..screen = e.localPosition
+          ..reconnect = sel.id;
+        return;
+      }
+    }
     final port = outputPortAt(w);
     if (port != null) {
       final (pn, pp) = port;
@@ -285,9 +325,12 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
       } else if (!_c.selectedNodes.contains(node.id)) {
         _c.select(node.id);
       }
-      _drag = _Move(w, {
-        for (final id in _c.selectedNodes) id: _c.node(id)!.position,
-      });
+      _drag = _Move(
+          w,
+          {
+            for (final id in _c.selectedNodes) id: _c.node(id)!.position,
+          },
+          node.id);
       return;
     }
     final edge = edgeAt(w);
@@ -313,6 +356,10 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
     }
     _lastEmptyTap = now;
     _lastEmptyTapAt = e.localPosition;
+    if (HardwareKeyboard.instance.isShiftPressed) {
+      _drag = _Marquee(w);
+      return;
+    }
     _c.clearSelection();
     _drag = _Pan();
   }
@@ -342,11 +389,17 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
         setState(() => _updateConnect(cn, w, e.localPosition));
       case _Pan():
         _vp.panBy(e.delta);
+      case final _Marquee mq:
+        setState(() => mq.rect = Rect.fromPoints(mq.origin, w));
       case final _Move m:
         final d = w - m.origin;
         if (d == Offset.zero) return;
         m.moved = true;
-        _c.moveLive({for (final en in m.start.entries) en.key: en.value + d});
+        final adj = _snap(m, d);
+        _c.moveLive(
+            {for (final en in m.start.entries) en.key: en.value + d + adj});
+        final over = _insertTarget(m);
+        if (over != _hoverEdge) setState(() => _hoverEdge = over);
       case null:
         break;
     }
@@ -373,13 +426,78 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
 
   void _finishDrag() {
     final d = _drag;
+    if (d is _Marquee) {
+      _c.selectNodes(
+          _c.nodes
+              .where((n) =>
+                  d.rect.contains(n.rect.topLeft) &&
+                  d.rect.contains(n.rect.bottomRight))
+              .map((n) => n.id),
+          additive: true);
+      _drag = null;
+      setState(() {});
+      return;
+    }
     if (d is _Move && d.moved) {
-      _c.execute(MoveNodes(
+      final move = MoveNodes(
         from: d.start,
         to: {for (final id in d.start.keys) id: _c.node(id)!.position},
-      ));
+      );
+      final insert = _insertTarget(d);
+      final cmd = insert == null
+          ? null
+          : _c.insertOnEdgeCommand(insert, d.start.keys.single);
+      _c.execute(cmd == null ? move : BatchCommand([move, cmd]));
+      _hoverEdge = null;
     }
+    if (_guides.isNotEmpty) setState(() => _guides = const []);
     _drag = null;
+  }
+
+  List<GuideLine> _guides = const [];
+
+  Offset _snap(_Move m, Offset d) {
+    final g = _c.node(m.grab);
+    final start = m.start[m.grab];
+    if (g == null || start == null) return Offset.zero;
+    final moving = (start + d) & g.size;
+    var adj = Offset.zero;
+    var lines = const <GuideLine>[];
+    if (widget.snapToGuides) {
+      final visible = _vp.visibleWorldRect(_size).inflate(200);
+      final others = _c.nodes
+          .where((n) => !m.start.containsKey(n.id) && visible.overlaps(n.rect))
+          .map((n) => n.rect);
+      final r = computeGuides(moving, others, threshold: 6 / _vp.zoom);
+      adj = r.delta;
+      lines = r.lines;
+    }
+    if (widget.snapToGrid) {
+      final gs = widget.gridSize;
+      double round(double v) => (v / gs).roundToDouble() * gs - v;
+      adj = Offset(adj.dx != 0 ? adj.dx : round(moving.left),
+          adj.dy != 0 ? adj.dy : round(moving.top));
+    }
+    if (lines.isNotEmpty || _guides.isNotEmpty) setState(() => _guides = lines);
+    return adj;
+  }
+
+  /// Edge under a single, unconnected node being dragged.
+  String? _insertTarget(_Move m) {
+    if (m.start.length != 1) return null;
+    final id = m.start.keys.single;
+    if (_c.edges.any((e) => e.touches(id))) return null;
+    final n = _c.node(id);
+    if (n == null) return null;
+    for (final e in _c.edges) {
+      final ends = EdgePainter.endpoints(_c, e);
+      if (ends != null &&
+          hitEdge(ends.$1, ends.$2, widget.edgeType, n.rect.center,
+              tolerance: math.max(16.0, 16 / _vp.zoom))) {
+        return e.id;
+      }
+    }
+    return null;
   }
 
   void _cancelDrag() {
@@ -415,6 +533,20 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
 
   Future<void> _dropConnect(_Connect cn, Offset w) async {
     _updateConnect(cn, w, cn.screen);
+    final re = cn.reconnect;
+    if (re != null) {
+      if (cn.targetNode == null) {
+        _c.execute(RemoveEdges({re}));
+      } else {
+        final cmd = _c.reconnectCommand(re, cn.targetNode!, cn.targetPort!);
+        if (cmd != null) {
+          _c.execute(cmd);
+        } else if (cn.result != null && !cn.result!.ok) {
+          widget.onConnectRejected?.call(cn.result!);
+        }
+      }
+      return;
+    }
     if (cn.targetNode != null) {
       final cmd =
           _c.connectCommand(cn.node, cn.port, cn.targetNode!, cn.targetPort!);
@@ -490,6 +622,15 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
       kb.isShiftPressed ? _c.redo() : _c.undo();
     } else if (mod && k == LogicalKeyboardKey.keyY) {
       _c.redo();
+    } else if (mod && k == LogicalKeyboardKey.keyC) {
+      _c.copySelection();
+    } else if (mod && k == LogicalKeyboardKey.keyX) {
+      _c.cutSelection();
+    } else if (mod && k == LogicalKeyboardKey.keyV) {
+      final clip = _c.clipboard;
+      if (clip != null) _c.paste(clip);
+    } else if (mod && k == LogicalKeyboardKey.keyD) {
+      _c.duplicateSelection();
     } else if (mod && k == LogicalKeyboardKey.keyA) {
       _c.selectAll();
     } else if (k == LogicalKeyboardKey.delete ||
@@ -610,6 +751,10 @@ class FlowCanvasState extends State<FlowCanvas> with TickerProviderStateMixin {
                             nodeColor:
                                 widget.nodeColor ?? (_) => theme.selection,
                             preview: _preview,
+                            guides: _guides,
+                            marquee: _drag is _Marquee
+                                ? (_drag as _Marquee).rect
+                                : null,
                             hoverEdge: _hoverEdge,
                             repaint: Listenable.merge([_ticker, _vp, _c]),
                           ),

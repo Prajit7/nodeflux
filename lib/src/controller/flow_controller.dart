@@ -1,9 +1,13 @@
 import 'package:flutter/foundation.dart';
-import 'dart:ui' show Offset;
+import 'package:flutter/widgets.dart' show Axis, Offset;
 
 import '../model/flow_edge.dart';
 import '../model/flow_node.dart';
 import '../model/node_status.dart';
+import '../layout/layered_layout.dart';
+import '../model/port.dart';
+import '../serialization/flow_json.dart';
+import 'clipboard.dart';
 import 'commands.dart';
 
 class ConnectResult {
@@ -26,6 +30,40 @@ class FlowController extends ChangeNotifier {
     for (final e in edges) {
       _g.edges[e.id] = e;
     }
+  }
+
+  /// Loads a graph saved with [toJson]. See [decodeFlow].
+  factory FlowController.fromJson(Map<String, Object?> json,
+      {required Map<String, PortType> portTypes,
+      Object? Function(Object? raw)? decodeData}) {
+    final (nodes, edges) =
+        decodeFlow(json, portTypes: portTypes, decodeData: decodeData);
+    return FlowController(nodes: nodes, edges: edges);
+  }
+
+  /// Saves the graph (not run state or history). See [encodeFlow].
+  Map<String, Object?> toJson({Object? Function(Object? data)? encodeData}) =>
+      encodeFlow(nodes, edges, encodeData: encodeData);
+
+  /// Replaces the whole graph with one saved by [toJson]; clears
+  /// selection, run state and undo history.
+  void loadJson(Map<String, Object?> json,
+      {required Map<String, PortType> portTypes,
+      Object? Function(Object? raw)? decodeData}) {
+    final (nodes, edges) =
+        decodeFlow(json, portTypes: portTypes, decodeData: decodeData);
+    _g.nodes
+      ..clear()
+      ..addEntries(nodes.map((n) => MapEntry(n.id, n)));
+    _g.edges
+      ..clear()
+      ..addEntries(edges.map((e) => MapEntry(e.id, e)));
+    _undo.clear();
+    _redo.clear();
+    _selected.clear();
+    _selectedEdge = null;
+    pulses.clear();
+    notifyListeners();
   }
 
   static const historyLimit = 100;
@@ -117,6 +155,63 @@ class FlowController extends ChangeNotifier {
     return const ConnectResult.ok();
   }
 
+  String _freshEdgeId() {
+    String id;
+    do {
+      id = 'e${++_edgeSeq}';
+    } while (_g.edges.containsKey(id));
+    return id;
+  }
+
+  /// Moves the target end of [edgeId] to [dstNode]/[dstPort]; null if the
+  /// new connection is invalid.
+  FlowCommand? reconnectCommand(String edgeId, String dstNode, String dstPort) {
+    final e = _g.edges.remove(edgeId);
+    if (e == null) return null;
+    final ok = canConnect(e.sourceNode, e.sourcePort, dstNode, dstPort).ok;
+    _g.edges[edgeId] = e;
+    if (!ok) return null;
+    return BatchCommand([
+      RemoveEdges({edgeId}),
+      AddEdge(FlowEdge(
+          id: edgeId,
+          sourceNode: e.sourceNode,
+          sourcePort: e.sourcePort,
+          targetNode: dstNode,
+          targetPort: dstPort,
+          label: e.label)),
+    ]);
+  }
+
+  /// Splices node [nodeId] into [edgeId] (A→B becomes A→N→B) using N's
+  /// first compatible input and output; null if N can't sit there.
+  FlowCommand? insertOnEdgeCommand(String edgeId, String nodeId) {
+    final e = _g.edges[edgeId];
+    final n = _g.nodes[nodeId];
+    if (e == null || n == null || e.touches(nodeId)) return null;
+    final srcType = _g.nodes[e.sourceNode]?.port(e.sourcePort)?.type;
+    final dstType = _g.nodes[e.targetNode]?.port(e.targetPort)?.type;
+    if (srcType == null || dstType == null) return null;
+    final input = n.inputs.where((p) => p.type.accepts(srcType)).firstOrNull;
+    final output = n.outputs.where((p) => dstType.accepts(p.type)).firstOrNull;
+    if (input == null || output == null) return null;
+    return BatchCommand([
+      RemoveEdges({edgeId}),
+      AddEdge(FlowEdge(
+          id: _freshEdgeId(),
+          sourceNode: e.sourceNode,
+          sourcePort: e.sourcePort,
+          targetNode: nodeId,
+          targetPort: input.id)),
+      AddEdge(FlowEdge(
+          id: _freshEdgeId(),
+          sourceNode: nodeId,
+          sourcePort: output.id,
+          targetNode: e.targetNode,
+          targetPort: e.targetPort)),
+    ]);
+  }
+
   /// Builds the edge command for a valid connection, or null.
   AddEdge? connectCommand(
       String srcNode, String srcPort, String dstNode, String dstPort) {
@@ -147,6 +242,13 @@ class FlowController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void selectNodes(Iterable<String> ids, {bool additive = false}) {
+    if (!additive) _selected.clear();
+    _selected.addAll(ids.where(_g.nodes.containsKey));
+    _selectedEdge = null;
+    notifyListeners();
+  }
+
   void toggleSelect(String id) {
     _selected.contains(id) ? _selected.remove(id) : _selected.add(id);
     _selectedEdge = null;
@@ -170,6 +272,73 @@ class FlowController extends ChangeNotifier {
     _selected.clear();
     _selectedEdge = null;
     notifyListeners();
+  }
+
+  /// Last clip copied with [copySelection] (used by ⌘V).
+  FlowClipboard? clipboard;
+  int _pasteSeq = 0;
+
+  /// Copies selected nodes and the edges between them.
+  FlowClipboard? copySelection() {
+    if (_selected.isEmpty) return null;
+    final nodes = [for (final id in _selected) _g.nodes[id]!];
+    final edges = _g.edges.values
+        .where((e) =>
+            _selected.contains(e.sourceNode) &&
+            _selected.contains(e.targetNode))
+        .toList();
+    return clipboard = FlowClipboard(nodes, edges);
+  }
+
+  /// Adds copies of [clip] with fresh ids, offset by [offset] × paste count,
+  /// as one undo step, and selects them.
+  void paste(FlowClipboard clip, {Offset offset = const Offset(30, 30)}) {
+    if (clip.nodes.isEmpty) return;
+    clip.pasteCount++;
+    final delta = offset * clip.pasteCount.toDouble();
+    String fresh(String old) {
+      String id;
+      do {
+        id = '${old}_${++_pasteSeq}';
+      } while (_g.nodes.containsKey(id) || _g.edges.containsKey(id));
+      return id;
+    }
+
+    final ids = {for (final n in clip.nodes) n.id: fresh(n.id)};
+    execute(BatchCommand([
+      for (final n in clip.nodes) AddNode(cloneNode(n, ids[n.id]!, delta)),
+      for (final e in clip.edges)
+        AddEdge(FlowEdge(
+          id: fresh(e.id),
+          sourceNode: ids[e.sourceNode]!,
+          sourcePort: e.sourcePort,
+          targetNode: ids[e.targetNode]!,
+          targetPort: e.targetPort,
+          label: e.label,
+        )),
+    ]));
+    selectNodes(ids.values);
+  }
+
+  void duplicateSelection() {
+    final c = copySelection();
+    if (c != null) paste(c);
+  }
+
+  void cutSelection() {
+    if (copySelection() != null) removeSelected();
+  }
+
+  /// Arranges all nodes with [layeredLayout] as one undo step. Call
+  /// `FlowCanvasState.fitView()` afterwards to bring them into view.
+  void autoLayout(
+      {double layerGap = 80,
+      double nodeGap = 40,
+      Axis direction = Axis.horizontal}) {
+    if (_g.nodes.isEmpty) return;
+    final to = layeredLayout(nodes, edges,
+        layerGap: layerGap, nodeGap: nodeGap, direction: direction);
+    execute(MoveNodes(from: {for (final n in nodes) n.id: n.position}, to: to));
   }
 
   /// Replaces a node (matched by id), e.g. to store edited settings in

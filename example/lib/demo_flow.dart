@@ -5,6 +5,8 @@ const event = PortType('event', Color(0xFF2F9E44));
 const json = PortType('json', Color(0xFF3B5BDB));
 const text = PortType('text', Color(0xFFE67700));
 
+const portTypes = {'event': event, 'json': json, 'text': text};
+
 List<Port> io(PortType? i, PortType? o) => [
   if (i != null) Port(id: 'in', side: PortSide.left, type: i),
   if (o != null) Port(id: 'out', side: PortSide.right, type: o),

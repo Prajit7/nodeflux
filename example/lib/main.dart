@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:nodeflux/nodeflux.dart';
 
 import 'agent_node.dart';
@@ -37,13 +40,13 @@ class _NodefluxDemoState extends State<NodefluxDemo> {
     ),
     home: EditorPage(
       stepDelay: widget.stepDelay,
-      onToggleTheme: () => setState(
-        () => _mode =
-            Theme.of(context).brightness == Brightness.dark ||
-                _mode == ThemeMode.dark
-            ? ThemeMode.light
-            : ThemeMode.dark,
-      ),
+      onToggleTheme: () => setState(() {
+        // In system mode the effective brightness is the platform's.
+        final dark = _mode == ThemeMode.dark ||
+            (_mode == ThemeMode.system &&
+                MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+        _mode = dark ? ThemeMode.light : ThemeMode.dark;
+      }),
     ),
   );
 }
@@ -68,6 +71,7 @@ class _EditorPageState extends State<EditorPage> {
   late final sim = RunSimulator(controller, stepDelay: widget.stepDelay);
   EdgeType edgeType = EdgeType.bezier;
   bool animate = true, injectErrors = false, running = false;
+  bool guides = true, grid = false;
   int _ids = 100;
 
   @override
@@ -88,6 +92,61 @@ class _EditorPageState extends State<EditorPage> {
           ? '✓ Run succeeded · hover a connection to see its data'
           : 'Run finished with $errors error(s)',
     );
+  }
+
+  void _autoLayout() {
+    controller.autoLayout();
+    canvasKey.currentState?.fitView();
+  }
+
+  Future<void> _save() async {
+    final text = const JsonEncoder.withIndent('  ')
+        .convert(controller.toJson());
+    await Clipboard.setData(ClipboardData(text: text));
+    _toast('Flow JSON copied to clipboard (${controller.nodes.length} nodes)');
+  }
+
+  Future<void> _load() async {
+    final field = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Load flow JSON'),
+        content: SizedBox(
+          width: 480,
+          child: TextField(
+            key: const Key('load-json'),
+            controller: field,
+            maxLines: 12,
+            decoration: const InputDecoration(
+              hintText: 'Paste JSON saved with Save',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, field.text),
+            child: const Text('Load'),
+          ),
+        ],
+      ),
+    );
+    if (text == null || text.trim().isEmpty) return;
+    try {
+      controller.loadJson(
+        jsonDecode(text) as Map<String, Object?>,
+        portTypes: portTypes,
+      );
+      canvasKey.currentState?.fitView();
+      _toast('Loaded ${controller.nodes.length} nodes');
+    } catch (e) {
+      _toast('✕ Not valid flow JSON');
+    }
   }
 
   void _toast(String m) => ScaffoldMessenger.of(context)
@@ -228,11 +287,23 @@ class _EditorPageState extends State<EditorPage> {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Fit view',
-                    onPressed: () => canvasKey.currentState?.fitView(),
-                    icon: const Icon(Icons.fit_screen),
+                  TextButton.icon(
+                    onPressed: _autoLayout,
+                    icon: const Icon(Icons.account_tree_outlined),
+                    label: const Text('Auto-layout'),
                   ),
+                  TextButton.icon(
+                    onPressed: _save,
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('Save'),
+                  ),
+                  TextButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.file_open_outlined),
+                    label: const Text('Load'),
+                  ),
+                  _check('Guides', guides, (v) => setState(() => guides = v)),
+                  _check('Grid', grid, (v) => setState(() => grid = v)),
                   DropdownButton<EdgeType>(
                     value: edgeType,
                     underline: const SizedBox(),
@@ -257,27 +328,53 @@ class _EditorPageState extends State<EditorPage> {
             ),
           ),
           Expanded(
-            child: FlowCanvas(
-              key: canvasKey,
-              controller: controller,
-              viewport: viewport,
-              edgeType: edgeType,
-              animateEdges: animate,
-              nodeColor: (n) => colorFor(n.type),
-              onConnectRejected: (r) => _toast('✕ ${r.reason}'),
-              onConnectEndEmpty: _pick,
-              onCanvasMenu: _canvasMenu,
-              nodeBuilder: (_, n) => n.type == 'AI Agent'
-                  ? AgentNode(
-                      node: n,
-                      controller: controller,
-                      accent: colorFor(n.type),
-                    )
-                  : DefaultFlowNode(
-                      node: n,
-                      accent: colorFor(n.type),
-                      selected: controller.selectedNodes.contains(n.id),
-                    ),
+            child: Stack(
+              children: [
+                FlowCanvas(
+                  key: canvasKey,
+                  controller: controller,
+                  viewport: viewport,
+                  edgeType: edgeType,
+                  animateEdges: animate,
+                  nodeColor: (n) => colorFor(n.type),
+                  onConnectRejected: (r) => _toast('✕ ${r.reason}'),
+                  onConnectEndEmpty: _pick,
+                  onCanvasMenu: _canvasMenu,
+                  snapToGuides: guides,
+                  snapToGrid: grid,
+                  nodeBuilder: (_, n) => n.type == 'AI Agent'
+                      ? AgentNode(
+                          node: n,
+                          controller: controller,
+                          accent: colorFor(n.type),
+                        )
+                      : DefaultFlowNode(
+                          node: n,
+                          accent: colorFor(n.type),
+                          selected: controller.selectedNodes.contains(n.id),
+                        ),
+                ),
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: FlowMinimap(
+                    controller: controller,
+                    viewport: viewport,
+                    canvas: canvasKey,
+                    nodeColor: (n) => colorFor(n.type),
+                  ),
+                ),
+                Positioned(
+                  left: 16,
+                  bottom: 16,
+                  child: FlowControls(canvas: canvasKey, viewport: viewport),
+                ),
+                Positioned(
+                  left: 16,
+                  top: 12,
+                  child: FlowStats(controller: controller, viewport: viewport),
+                ),
+              ],
             ),
           ),
         ],

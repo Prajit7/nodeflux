@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../controller/flow_controller.dart';
 import '../controller/flow_viewport.dart';
+import '../controller/guides.dart';
 import '../model/flow_edge.dart';
 import '../model/flow_node.dart';
 import '../model/node_status.dart';
@@ -33,6 +34,8 @@ class EdgePainter extends CustomPainter {
     required Listenable repaint,
     this.preview,
     this.hoverEdge,
+    this.marquee,
+    this.guides = const [],
   }) : super(repaint: repaint);
 
   final FlowController controller;
@@ -43,6 +46,12 @@ class EdgePainter extends CustomPainter {
   final Color Function(FlowNode) nodeColor;
   final ConnectPreview? preview;
   final String? hoverEdge;
+
+  /// Box-selection rectangle in world space.
+  final Rect? marquee;
+
+  /// Smart-guide lines in world space.
+  final List<GuideLine> guides;
 
   static (Offset, Offset)? endpoints(FlowController c, FlowEdge e) {
     final a = c.node(e.sourceNode), b = c.node(e.targetNode);
@@ -132,6 +141,34 @@ class EdgePainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2
             ..color = pv.bad ? theme.errorColor : theme.selection);
+    }
+    if (guides.isNotEmpty) {
+      final gp = Paint()
+        ..color = const Color(0xFFF03E3E)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 / viewport.zoom;
+      for (final g in guides) {
+        final line = g.axis == Axis.vertical
+            ? (Path()
+              ..moveTo(g.at, g.from)
+              ..lineTo(g.at, g.to))
+            : (Path()
+              ..moveTo(g.from, g.at)
+              ..lineTo(g.to, g.at));
+        canvas.drawPath(
+            _dash(line, 0, on: 4 / viewport.zoom, off: 4 / viewport.zoom), gp);
+      }
+    }
+    final mq = marquee;
+    if (mq != null) {
+      canvas
+        ..drawRect(mq, Paint()..color = theme.selection.withValues(alpha: 0.08))
+        ..drawRect(
+            mq,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1 / viewport.zoom
+              ..color = theme.selection);
     }
     canvas.restore();
   }
