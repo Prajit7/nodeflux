@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/Prajit7/nodeflux/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajit7/nodeflux/actions/workflows/ci.yml)
 
-![nodeflux demo](https://raw.githubusercontent.com/Prajit7/nodeflux/main/doc/screenshot.png)
+![nodeflux demo](https://raw.githubusercontent.com/Prajit7/nodeflux/main/doc/demo.gif)
+
+*Run status with live data pulses, hover to preview data, group into a sub-flow and open it, auto-layout.*
 
 A fast, widget-based **node & flow editor for Flutter** — built for workflow, automation and AI-agent builders.
 
