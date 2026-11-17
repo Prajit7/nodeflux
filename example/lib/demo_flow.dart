@@ -62,7 +62,10 @@ final templates = <NodeTemplate>[
   ),
 ];
 
-Color colorFor(String type) => templates
+Color colorFor(String type) =>
+    type == 'subflow' ? const Color(0xFF495057) : _colorFor(type);
+
+Color _colorFor(String type) => templates
     .firstWhere((t) => t.type == type, orElse: () => templates.first)
     .color;
 

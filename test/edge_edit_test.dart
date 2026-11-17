@@ -5,13 +5,21 @@ import 'package:nodeflux/nodeflux.dart';
 
 const json = PortType('json', Color(0xFF3B5BDB));
 const text = PortType('text', Color(0xFFE67700));
-List<Port> io(PortType t) => [Port(id: 'in', side: PortSide.left, type: t), Port(id: 'out', side: PortSide.right, type: t)];
-FlowNode n(String id, Offset p, [PortType t = json]) => FlowNode(id: id, position: p, type: 't', label: id, ports: io(t));
+List<Port> io(PortType t) => [
+      Port(id: 'in', side: PortSide.left, type: t),
+      Port(id: 'out', side: PortSide.right, type: t)
+    ];
+FlowNode n(String id, Offset p, [PortType t = json]) =>
+    FlowNode(id: id, position: p, type: 't', label: id, ports: io(t));
 
 Future<FlowController> pump(WidgetTester t, List<FlowNode> nodes) async {
   final c = FlowController(nodes: nodes);
   await t.pumpWidget(MaterialApp(
-      home: Scaffold(body: FlowCanvas(controller: c, animateEdges: false, nodeBuilder: (_, n) => Text(n.label)))));
+      home: Scaffold(
+          body: FlowCanvas(
+              controller: c,
+              animateEdges: false,
+              nodeBuilder: (_, n) => Text(n.label)))));
   return c;
 }
 
@@ -27,7 +35,11 @@ Future<void> mouseDrag(WidgetTester t, Offset from, Offset to) async {
 
 void main() {
   testWidgets('drag selected edge end to other node reconnects', (t) async {
-    final c = await pump(t, [n('a', const Offset(0, 100)), n('b', const Offset(400, 100)), n('c', const Offset(400, 300))]);
+    final c = await pump(t, [
+      n('a', const Offset(0, 100)),
+      n('b', const Offset(400, 100)),
+      n('c', const Offset(400, 300))
+    ]);
     c.connect('a', 'out', 'b', 'in');
     c.selectEdge(c.edges.first.id);
     await t.pump();
@@ -40,7 +52,8 @@ void main() {
   });
 
   testWidgets('drop edge end on empty deletes edge', (t) async {
-    final c = await pump(t, [n('a', const Offset(0, 100)), n('b', const Offset(400, 100))]);
+    final c = await pump(
+        t, [n('a', const Offset(0, 100)), n('b', const Offset(400, 100))]);
     c.connect('a', 'out', 'b', 'in');
     c.selectEdge(c.edges.first.id);
     await t.pump();
@@ -49,14 +62,20 @@ void main() {
   });
 
   testWidgets('drop node on edge inserts it', (t) async {
-    final c = await pump(t, [n('a', const Offset(0, 100)), n('b', const Offset(600, 100)), n('m', const Offset(300, 400))]);
+    final c = await pump(t, [
+      n('a', const Offset(0, 100)),
+      n('b', const Offset(600, 100)),
+      n('m', const Offset(300, 400))
+    ]);
     c.connect('a', 'out', 'b', 'in');
     await t.pump();
     final h = c.historyLength;
     await mouseDrag(t, const Offset(390, 434), const Offset(390, 134));
     expect(c.edges.length, 2);
-    expect(c.edges.any((e) => e.sourceNode == 'a' && e.targetNode == 'm'), isTrue);
-    expect(c.edges.any((e) => e.sourceNode == 'm' && e.targetNode == 'b'), isTrue);
+    expect(
+        c.edges.any((e) => e.sourceNode == 'a' && e.targetNode == 'm'), isTrue);
+    expect(
+        c.edges.any((e) => e.sourceNode == 'm' && e.targetNode == 'b'), isTrue);
     expect(c.historyLength, h + 1);
     c.undo();
     expect(c.edges.single.targetNode, 'b');
@@ -64,7 +83,11 @@ void main() {
   });
 
   testWidgets('incompatible insert is ignored', (t) async {
-    final c = await pump(t, [n('a', const Offset(0, 100)), n('b', const Offset(600, 100)), n('m', const Offset(300, 400), text)]);
+    final c = await pump(t, [
+      n('a', const Offset(0, 100)),
+      n('b', const Offset(600, 100)),
+      n('m', const Offset(300, 400), text)
+    ]);
     c.connect('a', 'out', 'b', 'in');
     await t.pump();
     await mouseDrag(t, const Offset(390, 434), const Offset(390, 134));
@@ -73,7 +96,11 @@ void main() {
   });
 
   test('reconnectCommand validates types', () {
-    final c = FlowController(nodes: [n('a', Offset.zero), n('b', Offset.zero), n('t', Offset.zero, text)]);
+    final c = FlowController(nodes: [
+      n('a', Offset.zero),
+      n('b', Offset.zero),
+      n('t', Offset.zero, text)
+    ]);
     c.connect('a', 'out', 'b', 'in');
     expect(c.reconnectCommand(c.edges.first.id, 't', 'in'), isNull);
   });

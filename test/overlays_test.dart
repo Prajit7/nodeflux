@@ -16,13 +16,26 @@ void main() {
     await t.pumpWidget(MaterialApp(
       home: Scaffold(
         body: Stack(children: [
-          FlowCanvas(key: key, controller: c, viewport: v, animateEdges: false, nodeBuilder: (_, n) => Text(n.label)),
+          FlowCanvas(
+              key: key,
+              controller: c,
+              viewport: v,
+              animateEdges: false,
+              nodeBuilder: (_, n) => Text(n.label)),
           Positioned(
               right: 10,
               bottom: 10,
-              child: FlowMinimap(key: const Key('mini'), controller: c, viewport: v, canvas: key)),
-          Positioned(left: 10, bottom: 10, child: FlowControls(canvas: key, viewport: v)),
-          Positioned(left: 10, top: 10, child: FlowStats(controller: c, viewport: v)),
+              child: FlowMinimap(
+                  key: const Key('mini'),
+                  controller: c,
+                  viewport: v,
+                  canvas: key)),
+          Positioned(
+              left: 10,
+              bottom: 10,
+              child: FlowControls(canvas: key, viewport: v)),
+          Positioned(
+              left: 10, top: 10, child: FlowStats(controller: c, viewport: v)),
         ]),
       ),
     ));

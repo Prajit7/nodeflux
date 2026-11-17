@@ -42,7 +42,8 @@ class _NodefluxDemoState extends State<NodefluxDemo> {
       stepDelay: widget.stepDelay,
       onToggleTheme: () => setState(() {
         // In system mode the effective brightness is the platform's.
-        final dark = _mode == ThemeMode.dark ||
+        final dark =
+            _mode == ThemeMode.dark ||
             (_mode == ThemeMode.system &&
                 MediaQuery.platformBrightnessOf(context) == Brightness.dark);
         _mode = dark ? ThemeMode.light : ThemeMode.dark;
@@ -92,6 +93,48 @@ class _EditorPageState extends State<EditorPage> {
           ? '✓ Run succeeded · hover a connection to see its data'
           : 'Run finished with $errors error(s)',
     );
+  }
+
+  void _stress() {
+    final t = templates[2]; // Transform: json → json
+    final nodes = [
+      for (var i = 0; i < 1000; i++)
+        t.create('s$i', Offset((i % 40) * 230.0, (i ~/ 40) * 100.0)),
+    ];
+    final edges = [
+      for (var i = 1; i < 1000; i++)
+        if (i % 40 != 0)
+          FlowEdge(
+            id: 'se$i',
+            sourceNode: 's${i - 1}',
+            sourcePort: 'out',
+            targetNode: 's$i',
+            targetPort: 'in',
+          ),
+    ];
+    controller.loadJson(encodeFlow(nodes, edges), portTypes: portTypes);
+    canvasKey.currentState?.fitView();
+  }
+
+  List<FlowAction> _paletteActions() => [
+    for (final t in templates)
+      FlowAction(
+        label: 'Add: ${t.label}',
+        color: t.color,
+        run: () => _add(t, _viewCentre),
+      ),
+    FlowAction(label: 'Run flow', run: _run),
+    FlowAction(label: 'Save (copy JSON)', run: _save),
+    FlowAction(label: 'Load JSON…', run: _load),
+  ];
+
+  void _openSelected() {
+    final sel = controller.selectedNodes;
+    if (sel.length == 1 && controller.node(sel.single)?.subflow != null) {
+      canvasKey.currentState?.enterSubflow(sel.single);
+    } else {
+      _toast('Select a sub-flow node to open (or double-click it)');
+    }
   }
 
   void _autoLayout() {
@@ -287,6 +330,47 @@ class _EditorPageState extends State<EditorPage> {
                       ],
                     ),
                   ),
+                  ListenableBuilder(
+                    listenable: controller,
+                    builder: (_, _) => Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          onPressed: controller.selectedNodes.isEmpty
+                              ? null
+                              : () => controller.groupSelection(),
+                          child: const Text('Group'),
+                        ),
+                        TextButton(
+                          onPressed:
+                              controller.selectedNodes.length == 1 &&
+                                  controller
+                                          .node(controller.selectedNodes.single)
+                                          ?.subflow !=
+                                      null
+                              ? () => controller.ungroup(
+                                  controller.selectedNodes.single,
+                                )
+                              : null,
+                          child: const Text('Ungroup'),
+                        ),
+                        TextButton(
+                          onPressed: _openSelected,
+                          child: const Text('Open'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Commands (⌘K)',
+                    onPressed: () =>
+                        canvasKey.currentState?.openCommandPalette(),
+                    icon: const Icon(Icons.keyboard_command_key),
+                  ),
+                  TextButton(
+                    onPressed: _stress,
+                    child: const Text('Stress 1k'),
+                  ),
                   TextButton.icon(
                     onPressed: _autoLayout,
                     icon: const Icon(Icons.account_tree_outlined),
@@ -342,6 +426,7 @@ class _EditorPageState extends State<EditorPage> {
                   onCanvasMenu: _canvasMenu,
                   snapToGuides: guides,
                   snapToGrid: grid,
+                  paletteActions: _paletteActions,
                   nodeBuilder: (_, n) => n.type == 'AI Agent'
                       ? AgentNode(
                           node: n,
@@ -368,6 +453,17 @@ class _EditorPageState extends State<EditorPage> {
                   left: 16,
                   bottom: 16,
                   child: FlowControls(canvas: canvasKey, viewport: viewport),
+                ),
+                Positioned(
+                  top: 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: FlowBreadcrumb(
+                      controller: controller,
+                      onNavigate: () => canvasKey.currentState?.fitView(),
+                    ),
+                  ),
                 ),
                 Positioned(
                   left: 16,

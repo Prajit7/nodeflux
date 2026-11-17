@@ -8,7 +8,8 @@ void main() {
   const other = Rect.fromLTWH(100, 100, 180, 68);
 
   test('snaps left edges within threshold', () {
-    final r = computeGuides(const Rect.fromLTWH(104, 300, 180, 68), [other], threshold: 6);
+    final r = computeGuides(const Rect.fromLTWH(104, 300, 180, 68), [other],
+        threshold: 6);
     expect(r.delta, const Offset(-4, 0));
     expect(r.lines.single.axis, Axis.vertical);
     expect(r.lines.single.at, 100);
@@ -16,29 +17,36 @@ void main() {
 
   test('centre alignment', () {
     // centre y of other = 134; moving height 40 at y=112 → centre 132.
-    final r = computeGuides(const Rect.fromLTWH(500, 112, 100, 40), [other], threshold: 6);
+    final r = computeGuides(const Rect.fromLTWH(500, 112, 100, 40), [other],
+        threshold: 6);
     expect(r.delta, const Offset(0, 2));
     expect(r.lines.single.axis, Axis.horizontal);
     expect(r.lines.single.at, 134);
   });
 
   test('nothing beyond threshold', () {
-    final r = computeGuides(const Rect.fromLTWH(120, 300, 50, 50), [other], threshold: 6);
+    final r = computeGuides(const Rect.fromLTWH(120, 300, 50, 50), [other],
+        threshold: 6);
     expect(r.delta, Offset.zero);
     expect(r.lines, isEmpty);
   });
 
   test('picks nearest candidate', () {
     final r = computeGuides(const Rect.fromLTWH(103, 300, 180, 68),
-        [other, const Rect.fromLTWH(101, 600, 10, 10)], threshold: 6);
+        [other, const Rect.fromLTWH(101, 600, 10, 10)],
+        threshold: 6);
     expect(r.delta.dx, -2);
   });
 
-  Future<FlowController> pump(WidgetTester t, {bool guides = true, bool grid = false}) async {
+  Future<FlowController> pump(WidgetTester t,
+      {bool guides = true, bool grid = false}) async {
     final c = FlowController(nodes: [
-      const FlowNode(id: 'a', position: Offset(100, 100), type: 't', label: 'a'),
-      const FlowNode(id: 'b', position: Offset(400, 300), type: 't', label: 'b'),
-      const FlowNode(id: 'c', position: Offset(103, 500), type: 't', label: 'c'),
+      const FlowNode(
+          id: 'a', position: Offset(100, 100), type: 't', label: 'a'),
+      const FlowNode(
+          id: 'b', position: Offset(400, 300), type: 't', label: 'b'),
+      const FlowNode(
+          id: 'c', position: Offset(103, 500), type: 't', label: 'c'),
     ]);
     await t.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -61,7 +69,8 @@ void main() {
 
   testWidgets('dragging snaps to guide', (t) async {
     final c = await pump(t);
-    await mouseDrag(t, const Offset(490, 334), const Offset(193, 334)); // b to x=103
+    await mouseDrag(
+        t, const Offset(490, 334), const Offset(193, 334)); // b to x=103
     expect(c.node('b')!.position.dx, anyOf(100, 103));
   });
 
@@ -73,7 +82,8 @@ void main() {
     await t.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
     await t.tapAt(const Offset(490, 334));
     await t.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
-    await mouseDrag(t, const Offset(490, 334), const Offset(192, 334)); // b.x → 102
+    await mouseDrag(
+        t, const Offset(490, 334), const Offset(192, 334)); // b.x → 102
     expect(c.node('b')!.position.dx, 103);
   });
 

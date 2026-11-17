@@ -23,6 +23,10 @@ const pulseDuration = Duration(milliseconds: 600);
 /// Paints edges (with flowing dashes and data pulses), the connection
 /// preview, and LOD node boxes, in world space.
 class EdgePainter extends CustomPainter {
+  /// Edges / labels drawn in the last paint (for tests and stats).
+  static int debugLastEdgeCount = 0;
+  static int debugLastLabelCount = 0;
+
   EdgePainter({
     required this.controller,
     required this.viewport,
@@ -36,6 +40,7 @@ class EdgePainter extends CustomPainter {
     this.hoverEdge,
     this.marquee,
     this.guides = const [],
+    this.hiddenEdge,
   }) : super(repaint: repaint);
 
   final FlowController controller;
@@ -52,6 +57,9 @@ class EdgePainter extends CustomPainter {
 
   /// Smart-guide lines in world space.
   final List<GuideLine> guides;
+
+  /// Edge not drawn (being reconnected).
+  final String? hiddenEdge;
 
   static (Offset, Offset)? endpoints(FlowController c, FlowEdge e) {
     final a = c.node(e.sourceNode), b = c.node(e.targetNode);
@@ -73,13 +81,20 @@ class EdgePainter extends CustomPainter {
       ..translate(viewport.offset.dx, viewport.offset.dy)
       ..scale(viewport.zoom);
     final phase = (now.millisecondsSinceEpoch / 40) % 12;
+    var edgeCount = 0;
+    final labels = <(Offset, String)>[];
 
-    for (final e in controller.edges) {
+    for (final e in controller.edgesNear(visible)) {
+      if (e.id == hiddenEdge) continue;
       final ends = endpoints(controller, e);
       if (ends == null) continue;
       final (a, b) = ends;
       if (!visible.overlaps(Rect.fromPoints(a, b))) continue;
       final src = controller.node(e.sourceNode)!;
+      edgeCount++;
+      if (!lod && e.label != null && e.label!.isNotEmpty) {
+        labels.add((pointOnEdge(a, b, edgeType, 0.5), e.label!));
+      }
       final selected = controller.selectedEdge == e.id || hoverEdge == e.id;
       final base = src.port(e.sourcePort)!.type.color;
       final color = selected
@@ -114,9 +129,29 @@ class EdgePainter extends CustomPainter {
       }
     }
 
+    for (final (p, text) in labels) {
+      final tp = TextPainter(
+        text: TextSpan(
+            text: text, style: TextStyle(fontSize: 11, color: theme.mutedText)),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 160);
+      final box = Rect.fromCenter(
+          center: p, width: tp.width + 12, height: tp.height + 6);
+      canvas
+        ..drawRRect(RRect.fromRectAndRadius(box, const Radius.circular(99)),
+            Paint()..color = theme.nodeColor)
+        ..drawRRect(
+            RRect.fromRectAndRadius(box, const Radius.circular(99)),
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..color = theme.nodeBorder);
+      tp.paint(canvas, box.topLeft + const Offset(6, 3));
+    }
+    debugLastEdgeCount = edgeCount;
+    debugLastLabelCount = labels.length;
+
     if (lod) {
-      for (final n in controller.nodes) {
-        if (!visible.overlaps(n.rect)) continue;
+      for (final n in controller.nodesIn(visible)) {
         final r = RRect.fromRectAndRadius(n.rect, const Radius.circular(10));
         canvas
           ..drawRRect(r, Paint()..color = theme.nodeColor)

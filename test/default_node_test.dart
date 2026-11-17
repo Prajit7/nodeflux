@@ -107,4 +107,11 @@ void main() {
     expect(t.getTopLeft(find.text('body')).dy,
         greaterThan(t.getTopLeft(find.text('HTTP Request')).dy));
   });
+
+  testWidgets('group node shows node count', (t) async {
+    final g = base()
+        .copyWith(subflow: SubFlow(nodes: [base(), base()], edges: const []));
+    await show(t, g);
+    expect(find.text('2 nodes'), findsOneWidget);
+  });
 }

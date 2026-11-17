@@ -116,6 +116,16 @@ class UpdateNode extends FlowCommand {
   void revert(FlowGraph g) => g.nodes[before.id] = before;
 }
 
+class UpdateEdge extends FlowCommand {
+  UpdateEdge(this.before, this.after);
+  final FlowEdge before;
+  final FlowEdge after;
+  @override
+  void apply(FlowGraph g) => g.edges[after.id] = after;
+  @override
+  void revert(FlowGraph g) => g.edges[before.id] = before;
+}
+
 /// Several commands applied and undone as one step.
 class BatchCommand extends FlowCommand {
   BatchCommand(this.commands);

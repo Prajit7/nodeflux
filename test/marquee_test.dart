@@ -4,7 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nodeflux/nodeflux.dart';
 
-FlowNode n(String id, Offset p) => FlowNode(id: id, position: p, type: 't', label: id);
+FlowNode n(String id, Offset p) =>
+    FlowNode(id: id, position: p, type: 't', label: id);
 
 Future<(FlowController, FlowViewport)> pump(WidgetTester t) async {
   final c = FlowController(nodes: [
@@ -15,7 +16,11 @@ Future<(FlowController, FlowViewport)> pump(WidgetTester t) async {
   final v = FlowViewport();
   await t.pumpWidget(MaterialApp(
       home: Scaffold(
-          body: FlowCanvas(controller: c, viewport: v, animateEdges: false, nodeBuilder: (_, n) => Text(n.label)))));
+          body: FlowCanvas(
+              controller: c,
+              viewport: v,
+              animateEdges: false,
+              nodeBuilder: (_, n) => Text(n.label)))));
   return (c, v);
 }
 

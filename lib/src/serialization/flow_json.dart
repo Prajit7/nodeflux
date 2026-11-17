@@ -3,6 +3,7 @@ import 'dart:ui';
 import '../model/flow_edge.dart';
 import '../model/flow_node.dart';
 import '../model/port.dart';
+import '../model/subflow.dart';
 
 /// Current JSON schema version written by [encodeFlow].
 const flowJsonVersion = 1;
@@ -31,6 +32,14 @@ Map<String, Object?> encodeFlow(
             ],
             if (n.data != null || encodeData != null)
               'data': encodeData == null ? n.data : encodeData(n.data),
+            if (n.subflow case final sub?)
+              'subflow': {
+                ...encodeFlow(sub.nodes, sub.edges, encodeData: encodeData),
+                'boundary': {
+                  for (final b in sub.boundary.entries)
+                    b.key: [b.value.node, b.value.port],
+                },
+              },
           },
       ],
       'edges': [
@@ -70,6 +79,9 @@ Map<String, Object?> encodeFlow(
             ),
         ],
         data: decodeData == null ? raw['data'] : decodeData(raw['data']),
+        subflow: raw['subflow'] is Map
+            ? _decodeSub(raw['subflow'] as Map, portTypes, decodeData)
+            : null,
       ),
   ];
   final edges = <FlowEdge>[
@@ -84,4 +96,19 @@ Map<String, Object?> encodeFlow(
       ),
   ];
   return (nodes, edges);
+}
+
+SubFlow _decodeSub(Map raw, Map<String, PortType> portTypes,
+    Object? Function(Object? raw)? decodeData) {
+  final (nodes, edges) = decodeFlow(raw.cast<String, Object?>(),
+      portTypes: portTypes, decodeData: decodeData);
+  return SubFlow(
+    nodes: nodes,
+    edges: edges,
+    boundary: {
+      for (final e in (raw['boundary'] as Map? ?? const {}).entries)
+        e.key as String: BoundaryTarget(
+            (e.value as List)[0] as String, (e.value as List)[1] as String),
+    },
+  );
 }

@@ -22,4 +22,5 @@ FlowNode cloneNode(FlowNode n, String id, Offset delta) => FlowNode(
       label: n.label,
       ports: n.ports,
       data: n.data,
+      subflow: n.subflow,
     );

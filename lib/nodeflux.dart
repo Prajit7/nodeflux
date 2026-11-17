@@ -23,3 +23,8 @@ export 'src/widgets/flow_minimap.dart';
 export 'src/widgets/flow_stats.dart';
 export 'src/serialization/flow_json.dart';
 export 'src/layout/layered_layout.dart';
+export 'src/controller/spatial_index.dart';
+export 'src/model/subflow.dart';
+export 'src/widgets/flow_breadcrumb.dart';
+export 'src/render/edge_painter.dart' show EdgePainter;
+export 'src/widgets/flow_command_palette.dart';

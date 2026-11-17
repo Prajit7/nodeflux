@@ -1,5 +1,9 @@
 # nodeflux
 
+[![CI](https://github.com/Prajit7/nodeflux/actions/workflows/ci.yml/badge.svg)](https://github.com/Prajit7/nodeflux/actions/workflows/ci.yml)
+
+![nodeflux demo](https://raw.githubusercontent.com/Prajit7/nodeflux/main/doc/screenshot.png)
+
 A fast, widget-based **node & flow editor for Flutter** — built for workflow, automation and AI-agent builders.
 
 - Infinite canvas: pan, zoom (wheel, trackpad, pinch), animated fit-to-view
@@ -16,6 +20,10 @@ A fast, widget-based **node & flow editor for Flutter** — built for workflow, 
 - **Smart alignment guides** and optional grid snap
 - **Minimap**, zoom controls and stats overlays
 - **JSON save / load** and one-call **auto-layout**
+- **Sub-flows**: group nodes (⌘G), double-click to open, breadcrumb to go back
+- **⌘K command palette** with built-in and your own actions
+- **Edge labels**
+- **Fast**: spatial index + per-node widget caching — 1,000+ nodes stay smooth
 - Light & dark themes, all 6 platforms, **zero dependencies** beyond Flutter
 
 ## Hello flow
@@ -92,6 +100,31 @@ final copy = FlowController.fromJson(json, portTypes: {...}); // or a new contro
 
 flow.autoLayout();              // one undo step
 canvasKey.currentState!.fitView();
+```
+
+## Sub-flows
+
+```dart
+flow.groupSelection(label: 'Fetch & clean'); // ⌘G — crossing edges become group ports
+flow.enter(groupId);                         // or double-click the group
+flow.exit();                                 // or Esc / tap a breadcrumb
+flow.ungroup(groupId);                       // ⌘⇧G
+```
+
+Show where you are with `FlowBreadcrumb(controller: flow)`. Sub-flows are
+saved in JSON, and each level has its own undo history.
+
+## Command palette
+
+⌘K opens it. Add your own entries:
+
+```dart
+FlowCanvas(
+  paletteActions: () => [
+    FlowAction(label: 'Add: HTTP Request', color: Colors.blue, run: () => …),
+  ],
+  …
+);
 ```
 
 ## Showing run state

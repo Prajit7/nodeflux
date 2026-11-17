@@ -5,12 +5,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nodeflux/nodeflux.dart';
 
 const json = PortType('json', Color(0xFF3B5BDB));
-const io = [Port(id: 'in', side: PortSide.left, type: json), Port(id: 'out', side: PortSide.right, type: json)];
+const io = [
+  Port(id: 'in', side: PortSide.left, type: json),
+  Port(id: 'out', side: PortSide.right, type: json)
+];
 
 FlowController graph() {
   final c = FlowController(nodes: [
-    const FlowNode(id: 'a', position: Offset(10, 20), type: 'http', label: 'A', ports: io, data: {'url': 'x'}),
-    const FlowNode(id: 'b', position: Offset(300, 40), size: Size(240, 150), type: 'ai', label: 'B', ports: io),
+    const FlowNode(
+        id: 'a',
+        position: Offset(10, 20),
+        type: 'http',
+        label: 'A',
+        ports: io,
+        data: {'url': 'x'}),
+    const FlowNode(
+        id: 'b',
+        position: Offset(300, 40),
+        size: Size(240, 150),
+        type: 'ai',
+        label: 'B',
+        ports: io),
   ]);
   c.connect('a', 'out', 'b', 'in');
   c.setStatus('a', NodeStatus.success, output: {'secret': 1});
@@ -21,7 +36,8 @@ void main() {
   test('roundtrip preserves graph', () {
     final src = graph();
     final text = jsonEncode(src.toJson());
-    final c = FlowController.fromJson(jsonDecode(text) as Map<String, Object?>, portTypes: {'json': json});
+    final c = FlowController.fromJson(jsonDecode(text) as Map<String, Object?>,
+        portTypes: {'json': json});
     expect(c.nodes.length, 2);
     final b = c.node('b')!;
     expect(b.position, const Offset(300, 40));
@@ -45,12 +61,15 @@ void main() {
   test('custom data codec used', () {
     final m = graph().toJson(encodeData: (d) => d == null ? null : 'ENC');
     expect((m['nodes'] as List).first['data'], 'ENC');
-    final c = FlowController.fromJson(m, portTypes: {'json': json}, decodeData: (raw) => raw == 'ENC' ? 'DEC' : raw);
+    final c = FlowController.fromJson(m,
+        portTypes: {'json': json},
+        decodeData: (raw) => raw == 'ENC' ? 'DEC' : raw);
     expect(c.node('a')!.data, 'DEC');
   });
 
   test('history empty after load', () {
-    final c = FlowController.fromJson(graph().toJson(), portTypes: {'json': json});
+    final c =
+        FlowController.fromJson(graph().toJson(), portTypes: {'json': json});
     expect(c.canUndo, isFalse);
   });
 
@@ -59,8 +78,11 @@ void main() {
   });
 
   test('loadJson replaces graph in place and clears history', () {
-    final c = FlowController(nodes: [const FlowNode(id: 'z', position: Offset.zero, type: 't', label: 'Z')]);
-    c.addNode(const FlowNode(id: 'y', position: Offset.zero, type: 't', label: 'Y'));
+    final c = FlowController(nodes: [
+      const FlowNode(id: 'z', position: Offset.zero, type: 't', label: 'Z')
+    ]);
+    c.addNode(
+        const FlowNode(id: 'y', position: Offset.zero, type: 't', label: 'Y'));
     c.select('z');
     var notified = 0;
     c.addListener(() => notified++);

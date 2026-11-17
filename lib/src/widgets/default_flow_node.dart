@@ -33,7 +33,12 @@ class DefaultFlowNode extends StatelessWidget {
     };
     final thick = selected || s == NodeStatus.running || s == NodeStatus.error;
     final (subtitle, subColor) = switch (s) {
-      NodeStatus.idle => (node.type, t.mutedText),
+      NodeStatus.idle => (
+          node.subflow != null
+              ? '${node.subflow!.nodes.length} nodes'
+              : node.type,
+          t.mutedText
+        ),
       NodeStatus.running => ('running…', t.mutedText),
       NodeStatus.success => (
           '✓ ${node.duration?.inMilliseconds ?? 0}ms',
@@ -96,6 +101,20 @@ class DefaultFlowNode extends StatelessWidget {
     );
 
     return Stack(clipBehavior: Clip.none, children: [
+      if (node.subflow != null)
+        Positioned(
+          left: 6,
+          top: 6,
+          right: -6,
+          bottom: -6,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: t.nodeColor,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: t.nodeBorder),
+            ),
+          ),
+        ),
       Positioned.fill(child: body),
       for (final p in node.ports) _port(p, t),
     ]);

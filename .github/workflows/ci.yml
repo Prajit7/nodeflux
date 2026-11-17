@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Package — analyze & test
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib test || echo "::warning::code not formatted"
+          flutter analyze
+          flutter test
+      - name: Example — analyze & test
+        working-directory: example
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Publish dry-run
+        run: flutter pub publish --dry-run

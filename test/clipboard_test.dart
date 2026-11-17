@@ -4,11 +4,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nodeflux/nodeflux.dart';
 
 const json = PortType('json', Color(0xFF3B5BDB));
-const io = [Port(id: 'in', side: PortSide.left, type: json), Port(id: 'out', side: PortSide.right, type: json)];
-FlowNode n(String id, Offset p) => FlowNode(id: id, position: p, type: 't', label: id, ports: io);
+const io = [
+  Port(id: 'in', side: PortSide.left, type: json),
+  Port(id: 'out', side: PortSide.right, type: json)
+];
+FlowNode n(String id, Offset p) =>
+    FlowNode(id: id, position: p, type: 't', label: id, ports: io);
 
 FlowController graph() {
-  final c = FlowController(nodes: [n('a', Offset.zero), n('b', const Offset(300, 0)), n('c', const Offset(600, 0))]);
+  final c = FlowController(nodes: [
+    n('a', Offset.zero),
+    n('b', const Offset(300, 0)),
+    n('c', const Offset(600, 0))
+  ]);
   c.connect('a', 'out', 'b', 'in');
   c.connect('b', 'out', 'c', 'in');
   return c;
@@ -39,7 +47,10 @@ void main() {
     final clip = c.copySelection()!;
     c.paste(clip);
     c.paste(clip);
-    final copies = c.nodes.where((x) => x.label == 'a' && x.id != 'a').map((x) => x.position).toSet();
+    final copies = c.nodes
+        .where((x) => x.label == 'a' && x.id != 'a')
+        .map((x) => x.position)
+        .toSet();
     expect(copies, {const Offset(30, 30), const Offset(60, 60)});
     expect(c.nodes.map((x) => x.id).toSet().length, c.nodes.length);
   });
@@ -59,7 +70,12 @@ void main() {
 
   testWidgets('cmd+d duplicates, cmd+c/cmd+v pastes', (t) async {
     final c = graph();
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: FlowCanvas(controller: c, animateEdges: false, nodeBuilder: (_, n) => Text(n.label)))));
+    await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: FlowCanvas(
+                controller: c,
+                animateEdges: false,
+                nodeBuilder: (_, n) => Text(n.label)))));
     await t.tapAt(const Offset(90, 34));
     Future<void> cmd(LogicalKeyboardKey k) async {
       await t.sendKeyDownEvent(LogicalKeyboardKey.meta);
@@ -67,6 +83,7 @@ void main() {
       await t.sendKeyUpEvent(LogicalKeyboardKey.meta);
       await t.pump();
     }
+
     await cmd(LogicalKeyboardKey.keyD);
     expect(c.nodes.length, 4);
     await cmd(LogicalKeyboardKey.keyC);

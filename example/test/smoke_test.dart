@@ -89,4 +89,54 @@ void main() {
     expect(find.textContaining('7 nodes · 6 edges'), findsOneWidget);
     expect(find.text('Send to Slack'), findsOneWidget);
   });
+
+  testWidgets('group then enter shows inner nodes; palette adds node', (
+    t,
+  ) async {
+    t.view.physicalSize = const Size(2400, 1400);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(const NodefluxDemo());
+    await t.pump(const Duration(milliseconds: 600));
+    // Select Transform + Condition by tapping, then Group.
+    await t.tap(find.text('Transform').first);
+    await t.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await t.tap(find.text('Condition').first);
+    await t.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await t.pump();
+    await t.tap(find.text('Group'));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('Transform'), findsNothing);
+    expect(find.text('2 nodes'), findsOneWidget);
+    await t.tap(find.text('Open'));
+    for (var i = 0; i < 6; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('Transform'), findsWidgets);
+    expect(find.text('Root'), findsOneWidget);
+
+    await t.tap(find.byTooltip('Commands (⌘K)'));
+    for (var i = 0; i < 6; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    await t.enterText(find.byType(TextField).last, 'Add: Output');
+    await t.testTextInput.receiveAction(TextInputAction.done);
+    for (var i = 0; i < 6; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('Output'), findsWidgets);
+  });
+
+  testWidgets('stress button loads 1000 nodes', (t) async {
+    t.view.physicalSize = const Size(2400, 1400);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(const NodefluxDemo());
+    await t.pump(const Duration(milliseconds: 600));
+    await t.tap(find.text('Stress 1k'));
+    for (var i = 0; i < 6; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.textContaining('1000 nodes'), findsOneWidget);
+  });
 }

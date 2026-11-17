@@ -1,14 +1,16 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show Axis, Offset;
+import 'package:flutter/widgets.dart' show Axis, Offset, Rect, Size;
 
 import '../model/flow_edge.dart';
 import '../model/flow_node.dart';
 import '../model/node_status.dart';
 import '../layout/layered_layout.dart';
 import '../model/port.dart';
+import '../model/subflow.dart';
 import '../serialization/flow_json.dart';
 import 'clipboard.dart';
 import 'commands.dart';
+import 'spatial_index.dart';
 
 class ConnectResult {
   const ConnectResult.ok()
@@ -58,6 +60,7 @@ class FlowController extends ChangeNotifier {
     _g.edges
       ..clear()
       ..addEntries(edges.map((e) => MapEntry(e.id, e)));
+    _levels.clear();
     _undo.clear();
     _redo.clear();
     _selected.clear();
@@ -68,15 +71,73 @@ class FlowController extends ChangeNotifier {
 
   static const historyLimit = 100;
 
-  final FlowGraph _g = FlowGraph();
-  final List<FlowCommand> _undo = [];
-  final List<FlowCommand> _redo = [];
+  FlowGraph _g = FlowGraph();
+  List<FlowCommand> _undo = [];
+  List<FlowCommand> _redo = [];
+
+  /// Parent levels while inside sub-flows: (graph, undo, redo, group id).
+  final List<(FlowGraph, List<FlowCommand>, List<FlowCommand>, String)>
+      _levels = [];
   final Set<String> _selected = {};
   String? _selectedEdge;
   int _edgeSeq = 0;
 
   /// Edge id → time a data pulse started travelling along it.
   final Map<String, DateTime> pulses = {};
+
+  final SpatialIndex<String> _nodeIndex = SpatialIndex();
+  final SpatialIndex<String> _edgeIndex = SpatialIndex();
+  bool _indexDirty = true;
+  final Map<String, int> _z = {};
+
+  /// Paint order of a node (higher = on top).
+  int zOf(String id) {
+    _reindex();
+    return _z[id] ?? -1;
+  }
+
+  @override
+  void notifyListeners() {
+    _indexDirty = true;
+    super.notifyListeners();
+  }
+
+  void _reindex() {
+    if (!_indexDirty) return;
+    _indexDirty = false;
+    _nodeIndex.clear();
+    _edgeIndex.clear();
+    _z.clear();
+    var z = 0;
+    for (final n in _g.nodes.values) {
+      _z[n.id] = z++;
+      // Inflate so ports sitting on the node border are found too.
+      _nodeIndex.insert(n.id, n.rect.inflate(12));
+    }
+    for (final e in _g.edges.values) {
+      final a = _g.nodes[e.sourceNode], b = _g.nodes[e.targetNode];
+      if (a == null || b == null) continue;
+      // Bezier/step curves bulge sideways by up to ~40% of the horizontal
+      // distance (backwards edges), so pad generously.
+      final pad = a.size.width / 2 +
+          60 +
+          (b.rect.center.dx - a.rect.center.dx).abs() * 0.4;
+      _edgeIndex.insert(
+          e.id, Rect.fromPoints(a.rect.center, b.rect.center).inflate(pad));
+    }
+  }
+
+  /// Nodes whose bounds (plus a 12px port margin) overlap [r].
+  Iterable<FlowNode> nodesIn(Rect r) {
+    _reindex();
+    return _nodeIndex.query(r).map((id) => _g.nodes[id]).whereType<FlowNode>();
+  }
+
+  /// Edges whose endpoint bounds overlap [r]; candidates for hit-testing.
+  Iterable<FlowEdge> edgesNear(Rect r) {
+    _reindex();
+    return _edgeIndex.query(r).map((id) => _g.edges[id]).whereType<FlowEdge>();
+  }
 
   Iterable<FlowNode> get nodes => _g.nodes.values;
   Iterable<FlowEdge> get edges => _g.edges.values;
@@ -327,6 +388,212 @@ class FlowController extends ChangeNotifier {
 
   void cutSelection() {
     if (copySelection() != null) removeSelected();
+  }
+
+  /// Sets or clears the label drawn at an edge's midpoint (undoable).
+  void setEdgeLabel(String id, String? label) {
+    final e = _g.edges[id];
+    if (e == null || e.label == label) return;
+    execute(UpdateEdge(e, e.copyWith(label: label)));
+  }
+
+  // ------------------------------------------------------------- sub-flows
+
+  /// How many sub-flows deep the editor currently is (0 = root).
+  int get depth => _levels.length;
+
+  /// Group nodes from the root down to the current level.
+  List<FlowNode> get path => [
+        for (final (g, _, _, id) in _levels) g.nodes[id]!,
+      ];
+
+  String _freshId(String base, bool Function(String) taken) {
+    if (!taken(base)) return base;
+    var i = 2;
+    while (taken('${base}_$i')) {
+      i++;
+    }
+    return '${base}_$i';
+  }
+
+  /// Collapses the selected nodes into one group node (one undo step).
+  /// Edges crossing the selection become ports on the group.
+  void groupSelection({String label = 'Sub-flow'}) {
+    final sel = {..._selected};
+    if (sel.isEmpty) return;
+    final inner = [for (final id in sel) _g.nodes[id]!];
+    final innerEdges = _g.edges.values
+        .where((e) => sel.contains(e.sourceNode) && sel.contains(e.targetNode))
+        .toList();
+    final id = _freshId('group', (x) => _g.nodes.containsKey(x));
+    final ports = <Port>[];
+    final boundary = <String, BoundaryTarget>{};
+    final portFor = <String, String>{}; // "node/port" → group port id
+    final rewired = <FlowEdge>[];
+    for (final e in _g.edges.values) {
+      final inS = sel.contains(e.sourceNode), inT = sel.contains(e.targetNode);
+      if (inS == inT) continue;
+      final (node, port) =
+          inT ? (e.targetNode, e.targetPort) : (e.sourceNode, e.sourcePort);
+      final pid = portFor.putIfAbsent('$node/$port', () {
+        final pid = '${inT ? 'in' : 'out'}_${ports.length + 1}';
+        ports.add(Port(
+            id: pid,
+            side: inT ? PortSide.left : PortSide.right,
+            type: _g.nodes[node]!.port(port)!.type));
+        boundary[pid] = BoundaryTarget(node, port);
+        return pid;
+      });
+      rewired.add(inT
+          ? FlowEdge(
+              id: e.id,
+              sourceNode: e.sourceNode,
+              sourcePort: e.sourcePort,
+              targetNode: id,
+              targetPort: pid,
+              label: e.label)
+          : FlowEdge(
+              id: e.id,
+              sourceNode: id,
+              sourcePort: pid,
+              targetNode: e.targetNode,
+              targetPort: e.targetPort,
+              label: e.label));
+    }
+    var tl = inner.first.position;
+    for (final x in inner) {
+      tl = Offset(tl.dx < x.position.dx ? tl.dx : x.position.dx,
+          tl.dy < x.position.dy ? tl.dy : x.position.dy);
+    }
+    final side = ports.where((p) => p.isInput).length >
+            ports.where((p) => !p.isInput).length
+        ? ports.where((p) => p.isInput).length
+        : ports.where((p) => !p.isInput).length;
+    final group = FlowNode(
+      id: id,
+      position: tl,
+      size: Size(200, side * 28.0 + 20 > 68 ? side * 28.0 + 20 : 68),
+      type: 'subflow',
+      label: label,
+      ports: ports,
+      subflow: SubFlow(nodes: inner, edges: innerEdges, boundary: boundary),
+    );
+    execute(BatchCommand([
+      RemoveNodes(sel),
+      AddNode(group),
+      for (final e in rewired) AddEdge(e),
+    ]));
+    select(id);
+  }
+
+  /// Expands group node [id] back into its nodes (one undo step).
+  void ungroup(String id) {
+    final g = _g.nodes[id];
+    final sub = g?.subflow;
+    if (g == null || sub == null) return;
+    var tl = sub.nodes.isEmpty ? g.position : sub.nodes.first.position;
+    for (final x in sub.nodes) {
+      tl = Offset(tl.dx < x.position.dx ? tl.dx : x.position.dx,
+          tl.dy < x.position.dy ? tl.dy : x.position.dy);
+    }
+    final shift = g.position - tl;
+    final taken = {..._g.nodes.keys}..remove(id);
+    final nodeIds = <String, String>{};
+    for (final x in sub.nodes) {
+      final nid = _freshId(x.id, taken.contains);
+      taken.add(nid);
+      nodeIds[x.id] = nid;
+    }
+    final edgeTaken = {..._g.edges.keys};
+    String eid(String base) {
+      final e = _freshId(base, edgeTaken.contains);
+      edgeTaken.add(e);
+      return e;
+    }
+
+    final outside = _g.edges.values.where((e) => e.touches(id)).toList();
+    for (final e in outside) {
+      edgeTaken.remove(e.id);
+    }
+    execute(BatchCommand([
+      RemoveNodes({id}),
+      for (final x in sub.nodes) AddNode(cloneNode(x, nodeIds[x.id]!, shift)),
+      for (final e in sub.edges)
+        AddEdge(FlowEdge(
+            id: eid(e.id),
+            sourceNode: nodeIds[e.sourceNode]!,
+            sourcePort: e.sourcePort,
+            targetNode: nodeIds[e.targetNode]!,
+            targetPort: e.targetPort,
+            label: e.label)),
+      for (final e in outside)
+        if (sub.boundary[e.targetNode == id ? e.targetPort : e.sourcePort]
+            case final b?)
+          AddEdge(e.targetNode == id
+              ? FlowEdge(
+                  id: eid(e.id),
+                  sourceNode: e.sourceNode,
+                  sourcePort: e.sourcePort,
+                  targetNode: nodeIds[b.node]!,
+                  targetPort: b.port,
+                  label: e.label)
+              : FlowEdge(
+                  id: eid(e.id),
+                  sourceNode: nodeIds[b.node]!,
+                  sourcePort: b.port,
+                  targetNode: e.targetNode,
+                  targetPort: e.targetPort,
+                  label: e.label)),
+    ]));
+    selectNodes(nodeIds.values);
+  }
+
+  /// Opens group node [id] for editing; [nodes]/[edges] become its contents.
+  void enter(String id) {
+    final sub = _g.nodes[id]?.subflow;
+    if (sub == null) return;
+    _levels.add((_g, _undo, _redo, id));
+    _g = FlowGraph();
+    for (final x in sub.nodes) {
+      _g.nodes[x.id] = x;
+    }
+    for (final e in sub.edges) {
+      _g.edges[e.id] = e;
+    }
+    _undo = [];
+    _redo = [];
+    _selected.clear();
+    _selectedEdge = null;
+    notifyListeners();
+  }
+
+  /// Leaves the current sub-flow, saving its contents into the group node.
+  void exit() {
+    if (_levels.isEmpty) return;
+    final (parent, undo, redo, id) = _levels.removeLast();
+    final group = parent.nodes[id]!;
+    parent.nodes[id] = group.copyWith(
+      subflow: SubFlow(
+        nodes: _g.nodes.values.toList(),
+        edges: _g.edges.values.toList(),
+        boundary: group.subflow!.boundary,
+      ),
+    );
+    _g = parent;
+    _undo = undo;
+    _redo = redo;
+    _selected
+      ..clear()
+      ..add(id);
+    _selectedEdge = null;
+    notifyListeners();
+  }
+
+  /// Exits until [depth] equals [level].
+  void exitTo(int level) {
+    while (_levels.length > level) {
+      exit();
+    }
   }
 
   /// Arranges all nodes with [layeredLayout] as one undo step. Call

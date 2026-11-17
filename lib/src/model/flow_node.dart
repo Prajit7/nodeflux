@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'node_status.dart';
 import 'port.dart';
+import 'subflow.dart';
 
 const _unset = Object();
 
@@ -18,6 +19,7 @@ class FlowNode {
     this.error,
     this.data,
     this.output,
+    this.subflow,
   });
 
   static const defaultSize = Size(180, 68);
@@ -37,6 +39,9 @@ class FlowNode {
 
   /// Last output produced by a run; shown in data previews.
   final Object? output;
+
+  /// Nested graph when this node is a group (sub-flow).
+  final SubFlow? subflow;
 
   Rect get rect => position & size;
 
@@ -72,6 +77,7 @@ class FlowNode {
     Object? error = _unset,
     Object? data = _unset,
     Object? output = _unset,
+    Object? subflow = _unset,
   }) {
     return FlowNode(
       id: id,
@@ -86,6 +92,7 @@ class FlowNode {
       error: identical(error, _unset) ? this.error : error as String?,
       data: identical(data, _unset) ? this.data : data,
       output: identical(output, _unset) ? this.output : output,
+      subflow: identical(subflow, _unset) ? this.subflow : subflow as SubFlow?,
     );
   }
 }
